@@ -95,11 +95,13 @@ class SalesforceBulk(object):
             username=username, password=password)
         return packet['access_token'], packet['instance_url']
 
-    def headers(self, values={}):
+    def headers(self, values={}, enable_pk_chunking=False):
         default = {"X-SFDC-Session": self.sessionId,
                    "Content-Type": "application/xml; charset=UTF-8"}
         for k, val in values.iteritems():
             default[k] = val
+        if enable_pk_chunking:
+            default["Sforce-Enable-PKChunking"] = "chunkSize=100000;"
         return default
 
     # Register a new Bulk API job - returns the job id
@@ -116,7 +118,7 @@ class SalesforceBulk(object):
         return self.create_job(object_name, "delete", **kwargs)
 
     def create_job(self, object_name=None, operation=None, contentType='CSV',
-                   concurrency=None):
+                   concurrency=None, enable_pk_chunking=False):
         assert(object_name is not None)
         assert(operation is not None)
 
@@ -128,7 +130,7 @@ class SalesforceBulk(object):
         http = Http()
         resp, content = http.request(self.endpoint + "/services/async/29.0/job",
                                      "POST",
-                                     headers=self.headers(),
+                                     headers=self.headers(enable_pk_chunking=enable_pk_chunking),
                                      body=doc)
 
         self.check_status(resp, content)
