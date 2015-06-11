@@ -101,7 +101,7 @@ class SalesforceBulk(object):
         for k, val in values.iteritems():
             default[k] = val
         if enable_pk_chunking:
-            default["Sforce-Enable-PKChunking"] = "chunkSize=100000;"
+            default["Sforce-Enable-PKChunking"] = "chunkSize=1000;"
         return default
 
     # Register a new Bulk API job - returns the job id
@@ -316,6 +316,22 @@ class SalesforceBulk(object):
             raise Exception(
                 "Batch id '%s' is uknown, can't retrieve job_id" % batch_id)
 
+    def job_batch_ids(self, job_id):
+        uri = urlparse.urljoin(self.endpoint,
+            '/services/async/29.0/job/{0}/batch'.format(job_id))
+        response = requests.get(uri, headers=self.headers())
+        if response.status_code != 200:
+            self.raise_error(response.content, response.status_code)
+
+        # remove namespace
+        xml_string = response.content
+        xml_string = re.sub(' xmlns="[^"]+"', '', xml_string, count=1)
+        tree = ET.fromstring(xml_string)
+
+        # get all the batch ids
+        batch_ids = [e.text for e in tree.findall("./batchInfo/id")]
+        return batch_ids
+
     def job_status(self, job_id=None):
         job_id = job_id or self.lookup_job_id(batch_id)
         uri = urlparse.urljoin(self.endpoint,
@@ -363,6 +379,16 @@ class SalesforceBulk(object):
             return status['state']
         else:
             return None
+
+    def are_batches_completed(self, job_id, batch_ids, reload=False):
+        completed = [self.is_batch_done(job_id, batch_id) for batch_id in batch_ids]
+        return all(item == True for item in completed)
+
+    def is_pk_chunked_batch_done(self, job_id):
+        batch_ids = self.job_batch_ids(job_id)
+        # zeroth batch is parent batch which never completes
+        return self.are_batches_completed(job_id, batch_ids[1:], reload=True)
+
 
     def is_batch_done(self, job_id, batch_id):
         batch_state = self.batch_state(job_id, batch_id, reload=True)
