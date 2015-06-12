@@ -101,7 +101,7 @@ class SalesforceBulk(object):
         for k, val in values.iteritems():
             default[k] = val
         if enable_pk_chunking:
-            default["Sforce-Enable-PKChunking"] = "chunkSize=1000;"
+            default["Sforce-Enable-PKChunking"] = "chunkSize=100000;"
         return default
 
     # Register a new Bulk API job - returns the job id
@@ -373,6 +373,13 @@ class SalesforceBulk(object):
         self.batch_statuses[batch_id] = result
         return result
 
+    def batch_created_at(self, job_id, batch_id, reload=False):
+        status = self.batch_status(job_id, batch_id, reload=reload)
+        if 'createdDate' in status:
+            return status['createdDate']
+        else:
+            return None
+
     def batch_state(self, job_id, batch_id, reload=False):
         status = self.batch_status(job_id, batch_id, reload=reload)
         if 'state' in status:
@@ -450,6 +457,23 @@ class SalesforceBulk(object):
                 logger('Loading bulk result #{0}'.format(i))
             yield line
 
+    def get_batch_result(self, job_id, batch_id):
+        """
+        Return a StringIO object of the batch result
+        """
+        result_iter = self.get_batch_result_iter(job_id, batch_id)
+        output = StringIO.StringIO()
+        if result_iter is not None:
+            for row in result_iter:
+                output.write(row+"\n")
+
+        # is it an empty string - then it is the dummy pkchunking file
+        if not output.getvalue():
+            return None
+        else:
+            return output
+
+
     def get_batch_result_iter(self, job_id, batch_id, parse_csv=False,
                               logger=None):
         """
@@ -470,14 +494,31 @@ class SalesforceBulk(object):
                     logger("Bulk batch %d had %d failed records" %
                            (batch_id, failed))
 
+        # get the result id
         uri = self.endpoint + \
             "/services/async/29.0/job/%s/batch/%s/result" % (job_id, batch_id)
-        r = requests.get(uri, headers=self.headers(), stream=True)
+        response = requests.get(uri, headers=self.headers())
+
+        if response.status_code != 200:
+            return None
+
+        # get the result id
+        # remove namespace
+        xml_string = response.content
+        xml_string = re.sub(' xmlns="[^"]+"', '', xml_string, count=1)
+        tree = ET.fromstring(xml_string)
+
+        # get all the batch ids
+        result_id = tree.find("./result").text
+        uri = self.endpoint + \
+            "/services/async/29.0/job/%s/batch/%s/result/%s" % (job_id, batch_id, result_id)
+        response = requests.get(uri, headers=self.headers(), stream=True)
+
         if parse_csv:
-            return csv.DictReader(r.iter_lines(chunk_size=2048), delimiter=",",
+            return csv.DictReader(response.iter_lines(chunk_size=2048), delimiter=",",
                                   quotechar='"')
         else:
-            return r.iter_lines(chunk_size=2048)
+            return response.iter_lines(chunk_size=2048)
 
     def get_upload_results(self, job_id, batch_id,
                            callback=(lambda *args, **kwargs: None),
