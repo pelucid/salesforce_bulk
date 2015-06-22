@@ -387,16 +387,16 @@ class SalesforceBulk(object):
         else:
             return None
 
-    def are_batches_completed(self, job_id, batch_ids, reload=False):
-        return [self.is_batch_done(job_id, batch_id) for batch_id in batch_ids]
-
-    def is_pk_chunked_batch_done(self, job_id):
+    def is_pk_chunked_batch_done(self, job_id, root_batch_id):
         batch_ids = self.job_batch_ids(job_id)
-        # zeroth batch is parent batch which never completes
-        statuses = self.are_batches_completed(job_id, batch_ids, reload=True)
-        # salesforce leaves one batch open when pkchunking
-        return statuses.count(False) == 1
-
+        # root_batch_id is parent batch which never completes
+        # https://help.salesforce.com/HTViewSolution?id=000213703&language=en_US
+        completed = True
+        for batch_id in batch_ids:
+            if batch_id != root_batch_id:
+                completed = completed and self.is_batch_done(job_id, batch_id)
+        # check that the only open batch
+        return completed
 
     def is_batch_done(self, job_id, batch_id):
         batch_state = self.batch_state(job_id, batch_id, reload=True)
