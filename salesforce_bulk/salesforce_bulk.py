@@ -405,9 +405,9 @@ class SalesforceBulk(object):
         # Make 5 attempts and then error out.
         for attempt in range(0, 5):
             batch_ids = self.job_batch_ids(job_id)
-            if len(batch_ids >= 2):
+            if len(batch_ids) >= 2:
                 break
-            elif len(batch_ids <= 1) and attempt < 4:
+            elif len(batch_ids) <= 1 and attempt < 4:
                 # Give salesforce time to finish processing
                 time.sleep(5)
             else:
