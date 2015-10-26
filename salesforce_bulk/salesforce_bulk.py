@@ -47,6 +47,15 @@ class BulkBatchFailed(BulkApiError):
                                                             state_message)
         super(BulkBatchFailed, self).__init__(message)
 
+class PkChunkedBatchValueError(BulkApiError):
+    """Raise when PK Chunked batch returns less than 2 batches."""
+
+    def __init__(self, job_id):
+        self.job_id = job_id
+
+        message = 'PK Chunked job {0} returned less than 2 batches.'.format(job_id)
+        super(BulkBatchFailed, self).__init__(message)
+
 
 class SalesforceBulk(object):
 
@@ -317,6 +326,7 @@ class SalesforceBulk(object):
                 "Batch id '%s' is uknown, can't retrieve job_id" % batch_id)
 
     def job_batch_ids(self, job_id):
+        # https://developer.salesforce.com/docs/atlas.en-us.api_asynch.meta/api_asynch/asynch_api_batches_get_info_all.htm
         uri = urlparse.urljoin(self.endpoint,
             '/services/async/29.0/job/{0}/batch'.format(job_id))
         response = requests.get(uri, headers=self.headers())
@@ -388,14 +398,28 @@ class SalesforceBulk(object):
             return None
 
     def is_pk_chunked_batch_done(self, job_id, root_batch_id):
-        batch_ids = self.job_batch_ids(job_id)
+        """Check if PK chunked batch has completed.
+
+        We know that a pk chunked job will return at least two batches.
+        """
+        # Make 5 attempts and then error out.
+        for attempt in range(0, 5):
+            batch_ids = self.job_batch_ids(job_id)
+            if len(batch_ids >= 2):
+                break
+            elif len(batch_ids <= 1) and attempt < 4:
+                # Give salesforce time to finish processing
+                time.sleep(5)
+            else:
+                # On the last attempt, if still only 1 batch ID, something bad has happened.
+                raise PkChunkedBatchValueError(job_id)
+
         # root_batch_id is parent batch which never completes
         # https://help.salesforce.com/HTViewSolution?id=000213703&language=en_US
         completed = True
         for batch_id in batch_ids:
             if batch_id != root_batch_id:
                 completed = completed and self.is_batch_done(job_id, batch_id)
-        # check that the only open batch
         return completed
 
     def is_batch_done(self, job_id, batch_id):
