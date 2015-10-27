@@ -54,7 +54,7 @@ class PkChunkedBatchValueError(BulkApiError):
         self.job_id = job_id
 
         message = 'PK Chunked job {0} returned less than 2 batches.'.format(job_id)
-        super(BulkBatchFailed, self).__init__(message)
+        super(PkChunkedBatchValueError, self).__init__(message)
 
 
 class SalesforceBulk(object):
